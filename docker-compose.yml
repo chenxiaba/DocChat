@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  docchat-ai:
+    build: .
+    ports:
+      - "8000:8000"  # FastAPI后端
+      - "8501:8501"  # Streamlit前端
+    volumes:
+      - ./data:/app/data  # 持久化数据目录
+      - ./logs:/app/logs  # 日志目录
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 可选：如果需要数据库，可以添加PostgreSQL或SQLite
+  # database:
+  #   image: postgres:13
+  #   environment:
+  #     POSTGRES_DB: docchat
+  #     POSTGRES_USER: docchat
+  #     POSTGRES_PASSWORD: docchat
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+# volumes:
+#   postgres_data:
