@@ -1,37 +1,30 @@
-from langgraph.graph import StateGraph
+from __future__ import annotations
+
+from typing import List, TypedDict
+
+import structlog
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from .retriever import get_retriever, get_hybrid_rerank_retriever
-from .config import VECTOR_DB_PATH, DEEPSEEK_API_KEY, API_BASE
-from typing import TypedDict, List
+from langgraph.graph import StateGraph
 
-try:
-    import streamlit as st
-except ModuleNotFoundError:  # pragma: no cover - streamlit 可选
-    st = None
+from .config import get_settings
+from .retriever import get_hybrid_rerank_retriever, get_retriever
+
+logger = structlog.get_logger(__name__)
+
+_settings = get_settings()
 
 
 def _resolve_api_key() -> str | None:
-    """优先从环境变量读取 API Key，必要时回退到 Streamlit secrets."""
+    """Resolve the DeepSeek API key from configuration."""
 
-    if DEEPSEEK_API_KEY:
-        return DEEPSEEK_API_KEY
-
-    if st is not None:
-        try:
-            return st.secrets["general"]["DEEPSEEK_API_KEY"]
-        except Exception:  # pragma: no cover - 兼容缺失 secrets 的情况
-            pass
-
-    return None
+    return _settings.deepseek_api_key
 
 
 def _require_api_key() -> str:
     api_key = _resolve_api_key()
     if not api_key:
-        raise RuntimeError(
-            "未能找到 DeepSeek API Key，请在 .env 或 .streamlit/secrets.toml 中配置 DEEPSEEK_API_KEY"
-        )
+        raise RuntimeError("未能找到 DeepSeek API Key，请在环境变量中配置 DEEPSEEK_API_KEY")
     return api_key
 
 class AgentState(TypedDict):
@@ -52,8 +45,8 @@ def generate_document_summary(docs_text):
         llm = ChatOpenAI(
             model="deepseek-chat",
             api_key=_require_api_key(),
-            base_url=API_BASE,
-            temperature=0.3  # 较低温度以获得更稳定的摘要
+            base_url=_settings.openai_api_base,
+            temperature=0.3,  # 较低温度以获得更稳定的摘要
         )
         
         # 创建摘要提示模板
@@ -79,8 +72,8 @@ def generate_document_summary(docs_text):
         
         return summary_response.content
         
-    except Exception as e:
-        print(f"文档摘要生成失败: {e}")
+    except Exception as exc:
+        logger.exception("document_summary_failed", error=str(exc))
         # 如果摘要失败，返回原始文档的前500个字符作为简单摘要
         return docs_text[:500] + "..." if len(docs_text) > 500 else docs_text
 
@@ -90,17 +83,19 @@ def generate_ai_response(query, docs_text):
     if not docs_text:
         return "抱歉，知识库中暂无相关内容。请尝试上传相关文档或询问其他问题。"
     
-    print(f"=== AI响应生成开始 ===")
-    print(f"查询内容: {query}")
-    print(f"文档长度: {len(docs_text)} 字符")
+    logger.info(
+        "ai_response_start",
+        query=query,
+        document_length=len(docs_text),
+    )
     
     # 初始化DeepSeek AI模型
     try:
         llm = ChatOpenAI(
             model="deepseek-chat",
             api_key=_require_api_key(),
-            base_url=API_BASE,
-            temperature=0.8  # 提高温度以获得更多样化的响应
+            base_url=_settings.openai_api_base,
+            temperature=0.8,  # 提高温度以获得更多样化的响应
         )
         
         # 根据查询类型定制化提示模板
@@ -200,28 +195,22 @@ def generate_ai_response(query, docs_text):
 请严格按照以上格式生成回答：
 """
         
-        # 创建智能提示模板
         prompt = ChatPromptTemplate.from_template(prompt_template)
-        
-        # 生成AI响应
         chain = prompt | llm
         response = chain.invoke({"query": query, "docs_text": docs_text})
-        
-        # 直接使用AI模型生成的markdown格式内容
+
         response_content = response.content
-        
-        print(f"=== AI原始响应 ===")
-        print(f"原始响应长度: {len(response_content)} 字符")
-        print(f"原始响应内容: {response_content}")
-        print(f"原始换行符数量: {response_content.count(chr(10))}")
-        print(f"原始段落分隔数量: {response_content.count('\\n\\n')}")
-        print(f"=== AI响应生成结束 ===")
-        
+        logger.info(
+            "ai_response_complete",
+            response_length=len(response_content),
+            newline_count=response_content.count(chr(10)),
+            paragraph_breaks=response_content.count("\n\n"),
+        )
+
         return response_content
-        
-    except Exception as e:
-        # 如果AI模型调用失败，回退到本地响应生成器
-        print(f"AI模型调用失败，使用本地响应生成器: {e}")
+
+    except Exception as exc:
+        logger.exception("ai_response_failed", error=str(exc))
         return generate_local_response(query, docs_text)
 
 # 流式AI模型智能响应生成器
@@ -231,18 +220,20 @@ async def generate_ai_response_stream(query, docs_text):
         yield "抱歉，知识库中暂无相关内容。请尝试上传相关文档或询问其他问题。"
         return
     
-    print(f"=== 流式AI响应生成开始 ===")
-    print(f"查询内容: {query}")
-    print(f"文档长度: {len(docs_text)} 字符")
+    logger.info(
+        "stream_response_start",
+        query=query,
+        document_length=len(docs_text),
+    )
     
     # 初始化DeepSeek AI模型（支持流式）
     try:
         llm = ChatOpenAI(
             model="deepseek-chat",
             api_key=_require_api_key(),
-            base_url=API_BASE,
+            base_url=_settings.openai_api_base,
             temperature=0.8,  # 提高温度以获得更多样化的响应
-            streaming=True  # 启用流式输出
+            streaming=True,  # 启用流式输出
         )
         
         # 根据查询类型定制化提示模板
@@ -394,21 +385,25 @@ async def generate_ai_response_stream(query, docs_text):
                     yield chunk.content
                 
                 if chunk_count % 50 == 0:  # 每50个chunk打印一次进度
-                    print(f"流式处理中 - 已接收 {chunk_count} 个chunk，当前响应长度: {len(full_response)} 字符")
+                    logger.info(
+                        "stream_response_progress",
+                        chunks=chunk_count,
+                        response_length=len(full_response),
+                    )
         
         # 蹦字效果不需要处理剩余chunk，因为每个字符都已经直接输出了
         
-        print(f"=== 流式响应收集完成 ===")
-        print(f"总chunk数量: {chunk_count}")
-        print(f"完整响应长度: {len(full_response)} 字符")
-        print(f"原始响应内容: {full_response}")
-        print(f"原始换行符数量: {full_response.count(chr(10))}")
-        print(f"原始段落分隔数量: {full_response.count('\\n\\n')}")
-        print(f"=== 流式AI响应生成结束 ===")
+        logger.info(
+            "stream_response_complete",
+            chunks=chunk_count,
+            response_length=len(full_response),
+            newline_count=full_response.count(chr(10)),
+            paragraph_breaks=full_response.count("\n\n"),
+        )
         
-    except Exception as e:
+    except Exception as exc:
         # 如果AI模型调用失败，回退到本地响应生成器
-        print(f"AI模型流式调用失败，使用本地响应生成器: {e}")
+        logger.exception("stream_response_failed", error=str(exc))
         response = generate_local_response(query, docs_text)
         # 将本地响应分成小块流式输出
         chunk_size = 20

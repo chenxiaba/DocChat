@@ -1,13 +1,23 @@
+from __future__ import annotations
+
+import math
 import os
 import re
-import math
+import shutil
 from collections import defaultdict
+from threading import Lock
+
+import structlog
 from PyPDF2 import PdfReader
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from .config import VECTOR_DB_PATH, DEEPSEEK_API_KEY, API_BASE
+
+from .config import get_settings
+
+logger = structlog.get_logger(__name__)
+_settings = get_settings()
+_VECTOR_BUILD_LOCK = Lock()
 
 # 改进的文本清洗函数
 def clean_text(text):
@@ -158,10 +168,11 @@ def get_embeddings():
     """获取改进的本地语义嵌入模型"""
     return ImprovedEmbeddings()
 
-def build_vector_store(files: list[str]):
-    os.makedirs(VECTOR_DB_PATH, exist_ok=True)
+def build_vector_store(files: list[str]) -> None:
+    vector_dir = _settings.vector_db_path
+    vector_dir.mkdir(parents=True, exist_ok=True)
     docs = []
-    
+
     for fpath in files:
         reader = PdfReader(fpath)
         for page_num, page in enumerate(reader.pages):
@@ -187,23 +198,27 @@ def build_vector_store(files: list[str]):
                                 }
                             ))
     
+    if not docs:
+        logger.warning("vector_store_empty", reason="no_documents")
+        return
+
     # 使用DeepSeek语义嵌入模型
     embeddings = get_embeddings()
+
+    with _VECTOR_BUILD_LOCK:
+        if vector_dir.exists():
+            shutil.rmtree(vector_dir)
+
+        Chroma.from_documents(docs, embeddings, persist_directory=str(vector_dir))
+
+    logger.info("vector_store_built", document_chunks=len(docs))
     
-    # 如果已有向量数据库，先删除重建
-    if os.path.exists(VECTOR_DB_PATH):
-        import shutil
-        shutil.rmtree(VECTOR_DB_PATH)
-    
-    store = Chroma.from_documents(docs, embeddings, persist_directory=VECTOR_DB_PATH)
-    print(f"✅ 成功构建向量数据库，存储了 {len(docs)} 个文档块")
-    
-    # 打印一些样本内容用于调试
     if docs:
-        print("\n=== 样本内容预览 ===")
-        for i, doc in enumerate(docs[:3]):
-            print(f"样本 {i+1}: {doc.page_content[:200]}...")
-    
+        logger.debug(
+            "vector_store_sample",
+            samples=[doc.page_content[:200] for doc in docs[:3]],
+        )
+
     return store
 
 # BM25关键词检索器
@@ -446,16 +461,16 @@ class HybridRerankRetriever:
 def get_retriever():
     # 使用DeepSeek语义嵌入模型
     embeddings = get_embeddings()
-    return Chroma(persist_directory=VECTOR_DB_PATH, embedding_function=embeddings).as_retriever(search_kwargs={"k": 10})  # 增加检索数量
+    return Chroma(persist_directory=str(_settings.vector_db_path), embedding_function=embeddings).as_retriever(search_kwargs={"k": 10})  # 增加检索数量
 
 def get_hybrid_rerank_retriever():
     """获取Hybrid + Rerank检索器"""
     # 1. 获取语义检索器
     embeddings = get_embeddings()
-    semantic_retriever = Chroma(persist_directory=VECTOR_DB_PATH, embedding_function=embeddings).as_retriever(search_kwargs={"k": 15})
-    
+    semantic_retriever = Chroma(persist_directory=str(_settings.vector_db_path), embedding_function=embeddings).as_retriever(search_kwargs={"k": 15})
+
     # 2. 获取所有文档用于BM25检索器
-    store = Chroma(persist_directory=VECTOR_DB_PATH, embedding_function=embeddings)
+    store = Chroma(persist_directory=str(_settings.vector_db_path), embedding_function=embeddings)
     all_docs = store.get()
     documents = []
     for i, (doc_content, metadata) in enumerate(zip(all_docs['documents'], all_docs['metadatas'])):

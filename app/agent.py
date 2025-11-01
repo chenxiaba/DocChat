@@ -1,6 +1,5 @@
 from .workflow import create_workflow, create_simple_workflow
 from .retriever import get_retriever
-from .config import VECTOR_DB_PATH
 import asyncio
 from typing import AsyncGenerator
 

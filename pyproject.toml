@@ -36,7 +36,10 @@ dependencies = [
     "python-multipart>=0.0.6",
     "pypdf>=3.17.0",
     "python-dotenv>=1.0.0",
-    "watchfiles>=0.21.0"
+    "watchfiles>=0.21.0",
+    "pydantic-settings>=2.2.1",
+    "sqlalchemy>=2.0.29",
+    "structlog>=24.1.0"
 ]
 
 [project.optional-dependencies]
