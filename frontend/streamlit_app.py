@@ -112,13 +112,16 @@ with st.sidebar:
                 payload.append({"filename": file.name, "content": encoded})
             except Exception as exc:
                 st.error(f"文件 {file.name} 编码失败: {exc}")
-                return
+                continue  # 继续处理其他文件而不是返回
 
-        resp = requests.post(UPLOAD_URL, json=payload)
-        if resp.status_code == 200:
-            st.success(resp.json().get("status", "知识库已更新"))
+        if payload:  # 只有在有有效文件时才上传
+            resp = requests.post(UPLOAD_URL, json=payload)
+            if resp.status_code == 200:
+                st.success(resp.json().get("status", "知识库已更新"))
+            else:
+                st.error(f"上传失败: {resp.status_code}")
         else:
-            st.error(f"上传失败: {resp.status_code}")
+            st.error("没有有效的文件可以上传")
 
     st.divider()
     
