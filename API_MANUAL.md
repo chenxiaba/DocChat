@@ -14,7 +14,7 @@ DocChat AI API 是一个基于FastAPI构建的智能文档问答系统，支持P
 
 ## 认证方式
 
-当前版本API无需认证，生产环境建议添加API密钥认证。
+当前版本API提供可选的OAuth登录扩展，包括Google账号登录和微信扫码登录；生产环境可结合业务需求启用API密钥认证或自建账号体系。
 
 ## API端点列表
 
@@ -415,6 +415,41 @@ const chatStream = async (query) => {
     });
 };
 ```
+
+### 8. Google 账号登录
+
+**端点**: `GET /auth/google/login`
+
+- 返回字段：`authorization_url`（浏览器跳转地址）、`state`（CSRF防护令牌）、`expires_in`（state有效秒数）。
+- 授权地址使用Google官方OAuth端点并启用 `offline` 模式，服务端将使用配置中的 `DOCCHAT_GOOGLE_CLIENT_ID`、`DOCCHAT_GOOGLE_REDIRECT_URI` 等参数。
+- `state` 的有效期可通过环境变量 `DOCCHAT_OAUTH_STATE_TTL` 配置，默认600秒。
+
+**回调端点**: `GET /auth/google/callback`
+
+- 请求参数：`code`（Google返回的授权码）、`state`（必须与登录阶段保持一致）。
+- 成功响应体中包含经 `google-auth` 验签的 `profile` 信息与 `credentials` 凭证结构，便于调用方落库或换发业务Token。
+- 失败时返回HTTP 4xx/5xx状态码并给出错误描述（如 `Invalid or expired state parameter`、`Google token endpoint timeout`）。
+
+### 9. 微信扫码登录
+
+**端点**: `GET /auth/wechat/qrcode`
+
+- 返回字段：`login_url`（二维码地址）、`state`、`expires_in`。客户端需在二维码页面或App内校验 `state` 后再调用回调接口。
+- 二维码地址基于 `https://open.weixin.qq.com/connect/qrconnect`，scope固定为 `snsapi_login`。
+
+**回调端点**: `GET /auth/wechat/callback`
+
+- 请求参数：`code`（微信回传授权码）、`state`。
+- 服务端会调用微信官方接口 `sns/oauth2/access_token`、`sns/userinfo` 获取令牌及用户档案，并对网络异常、业务错误码进行分类处理。
+- 响应体中的 `credentials`、`profile` 字段方便对接方直接落库，未能获取到的字段返回 `null`。
+
+### 10. OAuth 配置与安全建议
+
+- `DOCCHAT_GOOGLE_CLIENT_ID`、`DOCCHAT_GOOGLE_CLIENT_SECRET`、`DOCCHAT_GOOGLE_REDIRECT_URI`：Google登录参数。
+- `DOCCHAT_WECHAT_APP_ID`、`DOCCHAT_WECHAT_APP_SECRET`、`DOCCHAT_WECHAT_REDIRECT_URI`：微信扫码登录参数。
+- `DOCCHAT_OAUTH_STATE_TTL`：state有效期（秒），默认600。
+- `DOCCHAT_OAUTH_HTTP_TIMEOUT`：与第三方OAuth服务交互的HTTP超时（秒），默认10。
+- 建议在业务层对 `state` 与 `profile.id`/`profile.openid` 做幂等校验，完成后端会话或JWT签发。
 
 ## 性能优化建议
 

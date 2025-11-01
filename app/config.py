@@ -37,6 +37,17 @@ class Settings(BaseSettings):
 
     log_json: bool = Field(default=True, alias="DOCCHAT_LOG_JSON")
 
+    google_client_id: Optional[str] = Field(default=None, alias="DOCCHAT_GOOGLE_CLIENT_ID")
+    google_client_secret: Optional[str] = Field(default=None, alias="DOCCHAT_GOOGLE_CLIENT_SECRET")
+    google_redirect_uri: Optional[str] = Field(default=None, alias="DOCCHAT_GOOGLE_REDIRECT_URI")
+
+    wechat_app_id: Optional[str] = Field(default=None, alias="DOCCHAT_WECHAT_APP_ID")
+    wechat_app_secret: Optional[str] = Field(default=None, alias="DOCCHAT_WECHAT_APP_SECRET")
+    wechat_redirect_uri: Optional[str] = Field(default=None, alias="DOCCHAT_WECHAT_REDIRECT_URI")
+
+    oauth_state_ttl_seconds: int = Field(default=600, alias="DOCCHAT_OAUTH_STATE_TTL", ge=60)
+    oauth_http_timeout_seconds: float = Field(default=10.0, alias="DOCCHAT_OAUTH_HTTP_TIMEOUT", gt=0)
+
     @field_validator("allowed_origins", "api_keys", mode="before")
     @classmethod
     def _parse_csv(cls, value: Iterable[str] | str | None) -> List[str]:
