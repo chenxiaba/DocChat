@@ -1,15 +1,23 @@
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from .retriever import build_vector_store
 from .agent import run_agentic_pipeline, run_agentic_pipeline_stream
 from .memory import SQLiteMemory
+from typing import List
+import base64
+import os
 
 app = FastAPI(title="DocChat AI API")
 memory = SQLiteMemory()
 
 class ChatRequest(BaseModel):
     query: str
+
+
+class PDFDocument(BaseModel):
+    filename: str
+    content: str  # base64 encoded
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
@@ -47,14 +55,24 @@ async def chat_stream(request: ChatRequest):
     )
 
 @app.post("/upload_pdfs")
-async def upload_pdfs(files: list[UploadFile]):
+async def upload_pdfs(files: List[PDFDocument]):
     paths = []
-    for f in files:
-        path = f"data/{f.filename}"
+    os.makedirs("data", exist_ok=True)
+    for doc in files:
+        try:
+            file_bytes = base64.b64decode(doc.content)
+        except Exception as exc:  # pragma: no cover - base64 解码异常
+            return {"status": "错误", "message": f"文件 {doc.filename} 解码失败: {exc}"}
+
+        safe_name = os.path.basename(doc.filename)
+        path = os.path.join("data", safe_name)
         with open(path, "wb") as out:
-            out.write(await f.read())
+            out.write(file_bytes)
         paths.append(path)
-    build_vector_store(paths)
+
+    if paths:
+        build_vector_store(paths)
+
     return {"status": "知识库已更新", "count": len(paths)}
 
 @app.post("/reset_memory")
