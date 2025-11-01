@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .agent import run_agentic_pipeline, run_agentic_pipeline_stream
+from .auth import router as auth_router
 from .config import Settings, get_settings
 from .database import init_db
 from .memory import SQLiteMemory
@@ -75,6 +76,8 @@ app.add_middleware(
 )
 
 memory = SQLiteMemory()
+
+app.include_router(auth_router)
 
 
 class ChatRequest(BaseModel):
