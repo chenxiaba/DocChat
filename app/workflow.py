@@ -4,8 +4,35 @@ from langchain_openai import ChatOpenAI
 from .retriever import get_retriever, get_hybrid_rerank_retriever
 from .config import VECTOR_DB_PATH, DEEPSEEK_API_KEY, API_BASE
 from typing import TypedDict, List
-import streamlit as st
-API_KEY = st.secrets["general"]["DEEPSEEK_API_KEY"]
+
+try:
+    import streamlit as st
+except ModuleNotFoundError:  # pragma: no cover - streamlit 可选
+    st = None
+
+
+def _resolve_api_key() -> str | None:
+    """优先从环境变量读取 API Key，必要时回退到 Streamlit secrets."""
+
+    if DEEPSEEK_API_KEY:
+        return DEEPSEEK_API_KEY
+
+    if st is not None:
+        try:
+            return st.secrets["general"]["DEEPSEEK_API_KEY"]
+        except Exception:  # pragma: no cover - 兼容缺失 secrets 的情况
+            pass
+
+    return None
+
+
+def _require_api_key() -> str:
+    api_key = _resolve_api_key()
+    if not api_key:
+        raise RuntimeError(
+            "未能找到 DeepSeek API Key，请在 .env 或 .streamlit/secrets.toml 中配置 DEEPSEEK_API_KEY"
+        )
+    return api_key
 
 class AgentState(TypedDict):
     query: str
@@ -24,7 +51,7 @@ def generate_document_summary(docs_text):
     try:
         llm = ChatOpenAI(
             model="deepseek-chat",
-            api_key=DEEPSEEK_API_KEY,
+            api_key=_require_api_key(),
             base_url=API_BASE,
             temperature=0.3  # 较低温度以获得更稳定的摘要
         )
@@ -71,7 +98,7 @@ def generate_ai_response(query, docs_text):
     try:
         llm = ChatOpenAI(
             model="deepseek-chat",
-            api_key=API_KEY,
+            api_key=_require_api_key(),
             base_url=API_BASE,
             temperature=0.8  # 提高温度以获得更多样化的响应
         )
@@ -212,7 +239,7 @@ async def generate_ai_response_stream(query, docs_text):
     try:
         llm = ChatOpenAI(
             model="deepseek-chat",
-            api_key=DEEPSEEK_API_KEY,
+            api_key=_require_api_key(),
             base_url=API_BASE,
             temperature=0.8,  # 提高温度以获得更多样化的响应
             streaming=True  # 启用流式输出

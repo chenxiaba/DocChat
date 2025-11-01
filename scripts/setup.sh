@@ -47,8 +47,8 @@ log_success "Python $PYTHON_VERSION 检测通过"
 
 # Step 2. 创建虚拟环境
 if [ ! -d "venv" ]; then
-    log_info "创建虚拟环境..."
-    python3 -m venv venv || error_exit "虚拟环境创建失败"
+    log_info "创建虚拟环境 (包含系统依赖)..."
+    python3 -m venv --system-site-packages venv || error_exit "虚拟环境创建失败"
     log_success "虚拟环境创建完成"
 else
     log_success "虚拟环境已存在"
@@ -66,13 +66,58 @@ log_success "虚拟环境激活成功"
 
 # Step 4. 升级 pip
 log_info "升级 pip 和包管理工具..."
-pip install --upgrade pip setuptools wheel || error_exit "pip 升级失败"
+if pip install --upgrade pip setuptools wheel; then
+    log_success "pip 及工具升级完成"
+else
+    log_warning "pip 升级失败，可能处于离线环境，将继续使用现有版本"
+fi
 
 # Step 5. 安装依赖
 if [ -f "requirements.txt" ]; then
     log_info "安装依赖包..."
-    pip install -r requirements.txt || error_exit "依赖安装失败"
-    log_success "依赖安装完成"
+    if pip install -r requirements.txt; then
+        log_success "依赖安装完成"
+    else
+        log_warning "依赖安装失败，尝试验证系统环境中是否已存在所需模块..."
+        python3 - <<'EOF'
+import importlib
+import sys
+
+modules = {
+    "langchain": "langchain",
+    "langgraph": "langgraph",
+    "openai": "openai",
+    "fastapi": "fastapi",
+    "uvicorn": "uvicorn",
+    "streamlit": "streamlit",
+    "python-dotenv": "dotenv",
+    "chromadb": "chromadb",
+    "PyPDF2": "PyPDF2",
+    "tiktoken": "tiktoken",
+    "requests": "requests",
+    "langchain-chroma": "langchain_chroma",
+    "langchain-openai": "langchain_openai",
+    "langchain-text-splitters": "langchain_text_splitters",
+}
+
+missing = []
+for package, module_name in modules.items():
+    try:
+        importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        missing.append(package)
+
+if missing:
+    print("❌ 以下依赖未能安装且在系统环境中缺失:\n - " + "\n - ".join(missing))
+    sys.exit(1)
+else:
+    print("✅ 所需依赖已在系统环境中可用，跳过安装")
+EOF
+        if [ $? -ne 0 ]; then
+            error_exit "依赖安装失败且系统中缺失必要模块"
+        fi
+        log_success "系统环境已包含所需依赖"
+    fi
 else
     error_exit "未找到 requirements.txt，请确认项目完整"
 fi

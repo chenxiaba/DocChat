@@ -1,10 +1,10 @@
 import streamlit as st
 import requests
-import json
 import time
 import os
 import pickle
 from datetime import datetime
+import base64
 
 API_URL = "http://localhost:8000/chat"
 STREAM_API_URL = "http://localhost:8000/chat_stream"
@@ -105,9 +105,20 @@ with st.sidebar:
     st.header("📂 上传PDF文档")
     files = st.file_uploader("上传文件", type=["pdf"], accept_multiple_files=True)
     if st.button("📘 构建知识库") and files:
-        upload_files = [("files", (f.name, f.read(), "application/pdf")) for f in files]
-        resp = requests.post(UPLOAD_URL, files=upload_files)
-        st.success(resp.json()["status"])
+        payload = []
+        for file in files:
+            try:
+                encoded = base64.b64encode(file.read()).decode("utf-8")
+                payload.append({"filename": file.name, "content": encoded})
+            except Exception as exc:
+                st.error(f"文件 {file.name} 编码失败: {exc}")
+                return
+
+        resp = requests.post(UPLOAD_URL, json=payload)
+        if resp.status_code == 200:
+            st.success(resp.json().get("status", "知识库已更新"))
+        else:
+            st.error(f"上传失败: {resp.status_code}")
 
     st.divider()
     
@@ -192,28 +203,39 @@ if query:
                 markdown_buffer = ""
                 
                 # 处理流式响应（进行流式渲染）
-                buffer = b""
-                
+                buffer = ""
+
                 for chunk in response.iter_content(chunk_size=1024):  # 增大chunk_size
-                    buffer += chunk
-                    
-                    # 尝试解码当前缓冲区
+                    if not chunk:
+                        continue
+
                     try:
-                        decoded_buffer = buffer.decode('utf-8')
-
-                        if decoded_buffer.startswith("data: ") and not decoded_buffer.endswith("[DONE]\n\n"):
-                            content = decoded_buffer[6:-2]  # 移除 "data: " 和末尾的 "\n\n"
-                            markdown_buffer += content
-
-                            # 只渲染当前累积的内容，避免重复渲染
-                            markdown_placeholder.markdown(markdown_buffer)
-                            
-                            # 清空缓冲区，避免重复累积
-                            buffer = b""
-
+                        buffer += chunk.decode("utf-8")
                     except UnicodeDecodeError:
-                        # 如果解码失败，继续累积数据
-                        pass
+                        # 如果解码失败，尝试忽略错误并继续累积
+                        buffer += chunk.decode("utf-8", errors="ignore")
+
+                    while "\n\n" in buffer:
+                        event, buffer = buffer.split("\n\n", 1)
+
+                        if not event.startswith("data: "):
+                            continue
+
+                        data = event[6:]
+
+                        if data == "[DONE]":
+                            buffer = ""
+                            break
+
+                        markdown_buffer += data
+                        markdown_placeholder.markdown(markdown_buffer)
+
+                # 处理可能残留的最后一个事件
+                if buffer.startswith("data: "):
+                    data = buffer[6:]
+                    if data and data != "[DONE]":
+                        markdown_buffer += data
+                        markdown_placeholder.markdown(markdown_buffer)
 
             # 最终保存完整响应内容
             full_response = markdown_buffer
