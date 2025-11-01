@@ -180,6 +180,51 @@ for i, msg in enumerate(st.session_state["history"]):
             content = msg['content']
             st.markdown(content)
 
+
+def process_sse_stream(buffer, data_buffer=""):
+    """
+    处理实时生成的 SSE 流式数据，确保有效数据不丢失，并保留换行符。
+    :param buffer: 当前实时接收的数据片段
+    :param data_buffer: 之前接收到的数据缓冲区，初始为空
+    :return: 返回有效的解析数据列表，并更新data_buffer为剩余部分
+    """
+    data_buffer += buffer  # 将当前接收到的数据追加到已有的数据缓冲区
+    result = []  # 存储有效的解析数据
+    is_done = False  # 标记是否遇到结束标记 'DONE'
+
+    # 检查数据缓冲区，提取每个有效的数据块
+    while True:
+        start_index = data_buffer.find("data: ")  # 查找数据块的开始标记
+        end_index = data_buffer.find("data: DONE")  # 查找结束标记
+
+        if start_index == -1:  # 没有找到数据块的开始，退出循环，等待更多数据
+            break
+        
+        # 找到有效数据块的开始位置
+        start_index += len("data: ")  # 从 'data: ' 后开始
+        
+        # 如果没有找到 'DONE'，就提取到当前缓冲区的结尾
+        if end_index == -1:
+            end_index = len(data_buffer)-2
+        
+        # 提取有效数据
+        valid_data = data_buffer[start_index:end_index]
+
+        if valid_data:
+            result.append(valid_data)
+
+        # 清除已经处理过的数据
+        data_buffer = data_buffer[end_index+2 + len("data: DONE"):]
+
+        # 如果找到 'data: DONE' 标记，结束处理
+        if "data: DONE" in data_buffer:
+            is_done = True
+            break
+
+    # 返回有效数据，并将剩余的部分继续保存到 data_buffer
+    return result, data_buffer, is_done
+
+
 if query:
     # 立即显示用户消息
     with st.chat_message("user"):
@@ -205,43 +250,31 @@ if query:
                 # 初始化Markdown缓冲区
                 markdown_buffer = ""
                 
-                # 处理流式响应（进行流式渲染）
+                # 处理流式响应（按照SSE协议正确解析）
                 buffer = ""
-
+                data_buffer = ""
                 for chunk in response.iter_content(chunk_size=1024):  # 增大chunk_size
                     if not chunk:
                         continue
 
                     try:
-                        buffer += chunk.decode("utf-8")
+                        buffer = chunk.decode("utf-8")
                     except UnicodeDecodeError:
                         # 如果解码失败，尝试忽略错误并继续累积
-                        buffer += chunk.decode("utf-8", errors="ignore")
+                        buffer = chunk.decode("utf-8", errors="ignore")
 
-                    while "\n\n" in buffer:
-                        event, buffer = buffer.split("\n\n", 1)
+                    # 每次接收到的缓冲区数据是流式的
+                    results, data_buffer, is_done = process_sse_stream(buffer, data_buffer)
 
-                        if not event.startswith("data: "):
-                            continue
+                    # 实时更新显示
+                    markdown_buffer = "".join(results)
+                    full_response += markdown_buffer
+                    markdown_placeholder.markdown(full_response)
 
-                        data = event[6:]
-
-                        if data == "[DONE]":
-                            buffer = ""
-                            break
-
-                        markdown_buffer += data
-                        markdown_placeholder.markdown(markdown_buffer)
-
-                # 处理可能残留的最后一个事件
-                if buffer.startswith("data: "):
-                    data = buffer[6:]
-                    if data and data != "[DONE]":
-                        markdown_buffer += data
-                        markdown_placeholder.markdown(markdown_buffer)
-
-            # 最终保存完整响应内容
-            full_response = markdown_buffer
+                    # 如果遇到 DONE 结束标志，退出循环
+                    if is_done:
+                        print("数据接收完成。")
+                        break
         else:
             # 处理非200状态码
             full_response = f"API请求失败，状态码：{response.status_code}"
