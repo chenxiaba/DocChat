@@ -26,6 +26,18 @@ error_exit() {
 # 切换到项目根目录
 cd "$PROJECT_ROOT" || error_exit "无法切换到项目根目录"
 
+# 加载环境变量
+if [ -f ".env" ]; then
+    log_info "加载 .env 环境变量..."
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+    log_success "环境变量加载完成"
+else
+    log_warning ".env 文件未找到，将使用当前环境变量"
+fi
+
 # 检查端口是否被占用
 check_port() {
     if lsof -i :$1 &> /dev/null; then

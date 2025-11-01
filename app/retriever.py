@@ -7,7 +7,7 @@ from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from .config import VECTOR_DB_PATH, DEEPSEEK_API_KEY, API_BASE
+from .core.config import Settings, get_settings
 
 # 改进的文本清洗函数
 def clean_text(text):
@@ -158,8 +158,9 @@ def get_embeddings():
     """获取改进的本地语义嵌入模型"""
     return ImprovedEmbeddings()
 
-def build_vector_store(files: list[str]):
-    os.makedirs(VECTOR_DB_PATH, exist_ok=True)
+def build_vector_store(files: list[str], settings: Settings | None = None):
+    settings = settings or get_settings()
+    os.makedirs(settings.vector_db_path, exist_ok=True)
     docs = []
     
     for fpath in files:
@@ -191,11 +192,13 @@ def build_vector_store(files: list[str]):
     embeddings = get_embeddings()
     
     # 如果已有向量数据库，先删除重建
-    if os.path.exists(VECTOR_DB_PATH):
+    if os.path.exists(settings.vector_db_path):
         import shutil
-        shutil.rmtree(VECTOR_DB_PATH)
-    
-    store = Chroma.from_documents(docs, embeddings, persist_directory=VECTOR_DB_PATH)
+        shutil.rmtree(settings.vector_db_path)
+
+    store = Chroma.from_documents(
+        docs, embeddings, persist_directory=settings.vector_db_path
+    )
     print(f"✅ 成功构建向量数据库，存储了 {len(docs)} 个文档块")
     
     # 打印一些样本内容用于调试
@@ -443,24 +446,34 @@ class HybridRerankRetriever:
         
         return merged_docs
 
-def get_retriever():
+def get_retriever(settings: Settings | None = None):
+    settings = settings or get_settings()
     # 使用DeepSeek语义嵌入模型
     embeddings = get_embeddings()
-    return Chroma(persist_directory=VECTOR_DB_PATH, embedding_function=embeddings).as_retriever(search_kwargs={"k": 10})  # 增加检索数量
+    return Chroma(
+        persist_directory=settings.vector_db_path,
+        embedding_function=embeddings,
+    ).as_retriever(search_kwargs={"k": 10})  # 增加检索数量
 
-def get_hybrid_rerank_retriever():
+
+def get_hybrid_rerank_retriever(settings: Settings | None = None):
     """获取Hybrid + Rerank检索器"""
+    settings = settings or get_settings()
     # 1. 获取语义检索器
     embeddings = get_embeddings()
-    semantic_retriever = Chroma(persist_directory=VECTOR_DB_PATH, embedding_function=embeddings).as_retriever(search_kwargs={"k": 15})
-    
+    semantic_retriever = Chroma(
+        persist_directory=settings.vector_db_path,
+        embedding_function=embeddings,
+    ).as_retriever(search_kwargs={"k": 15})
+
     # 2. 获取所有文档用于BM25检索器
-    store = Chroma(persist_directory=VECTOR_DB_PATH, embedding_function=embeddings)
+    store = Chroma(
+        persist_directory=settings.vector_db_path, embedding_function=embeddings
+    )
     all_docs = store.get()
     documents = []
-    for i, (doc_content, metadata) in enumerate(zip(all_docs['documents'], all_docs['metadatas'])):
+    for doc_content, metadata in zip(all_docs["documents"], all_docs["metadatas"]):
         documents.append(Document(page_content=doc_content, metadata=metadata))
-    
     # 3. 创建BM25检索器
     bm25_retriever = BM25Retriever(documents)
     

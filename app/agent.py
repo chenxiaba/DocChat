@@ -1,11 +1,11 @@
 from .workflow import create_workflow, create_simple_workflow
 from .retriever import get_retriever
-from .config import VECTOR_DB_PATH
+from .core.config import get_settings
 import asyncio
 from typing import AsyncGenerator
 
 # 使用简化版工作流提高性能
-graph = create_simple_workflow()
+graph = create_simple_workflow(settings=get_settings())
 
 # 智能的本地响应生成器
 def generate_local_response(query, docs_text):
@@ -134,14 +134,17 @@ def run_agentic_pipeline(query: str):
 async def run_agentic_pipeline_stream(query: str) -> AsyncGenerator[str, None]:
     """优化的流式版本智能体管道，使用真正的流式AI调用"""
     from .workflow import generate_ai_response_stream
-    
-    retriever = get_retriever()
+
+    settings = get_settings()
+    retriever = get_retriever(settings=settings)
     docs = retriever.invoke(query)
     # 使用更多文档内容（最多10个片段）
     docs_text = "\n".join([d.page_content for d in docs[:10]]) if docs else ""
-    
+
     # 使用流式AI模型生成响应
-    async for chunk in generate_ai_response_stream(query, docs_text):
+    async for chunk in generate_ai_response_stream(
+        query, docs_text, settings=settings
+    ):
         yield f"data: {chunk}\n\n"
     
     yield "data: [DONE]\n\n"

@@ -47,11 +47,19 @@
    # 编辑.env文件，添加你使用的llm服务
    # 修改.streamlit/secrets.toml里的api_key
    ```
+   `.env` 关键变量说明：
+
+   - `DEEPSEEK_API_KEY`：DeepSeek/兼容OpenAI接口的访问密钥。
+   - `OPENAI_API_BASE`：LLM 接口地址，默认指向 DeepSeek。
+   - `DB_PATH`：对话记忆 SQLite 数据库路径。
+   - `VECTOR_DB_PATH`：向量数据库持久化目录。
+   - `CHAT_HISTORY_PATH`：聊天历史缓存文件路径。
 
 4. **启动服务**
    ```bash
    bash scripts/start.sh
    ```
+   启动脚本会自动读取 `.env` 中的配置。
 
 5. **访问应用**
    - 前端界面: http://localhost:8501

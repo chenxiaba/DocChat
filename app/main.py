@@ -1,25 +1,28 @@
-from fastapi import FastAPI, UploadFile
+from fastapi import Depends, FastAPI, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from .retriever import build_vector_store
 from .agent import run_agentic_pipeline, run_agentic_pipeline_stream
 from .memory import SQLiteMemory
+from .core.config import Settings, get_settings
 
 app = FastAPI(title="DocChat AI API")
-memory = SQLiteMemory()
+memory = SQLiteMemory(settings=get_settings())
 
 class ChatRequest(BaseModel):
     query: str
 
 @app.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, _settings: Settings = Depends(get_settings)):
     memory.save("user", request.query)
     resp = run_agentic_pipeline(request.query)
     memory.save("assistant", resp)
     return {"response": resp}
 
 @app.post("/chat_stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(
+    request: ChatRequest, _settings: Settings = Depends(get_settings)
+):
     """流式聊天接口"""
     memory.save("user", request.query)
     
@@ -47,18 +50,20 @@ async def chat_stream(request: ChatRequest):
     )
 
 @app.post("/upload_pdfs")
-async def upload_pdfs(files: list[UploadFile]):
+async def upload_pdfs(
+    files: list[UploadFile], settings: Settings = Depends(get_settings)
+):
     paths = []
     for f in files:
         path = f"data/{f.filename}"
         with open(path, "wb") as out:
             out.write(await f.read())
         paths.append(path)
-    build_vector_store(paths)
+    build_vector_store(paths, settings=settings)
     return {"status": "知识库已更新", "count": len(paths)}
 
 @app.post("/reset_memory")
-async def reset_memory():
+async def reset_memory(_settings: Settings = Depends(get_settings)):
     memory.reset()
     return {"status": "记忆已清空"}
 
@@ -84,12 +89,13 @@ async def list_documents():
     return {"documents": documents}
 
 @app.post("/delete_document/{filename}")
-async def delete_document(filename: str):
+async def delete_document(
+    filename: str, settings: Settings = Depends(get_settings)
+):
     """删除指定的文档"""
     import os
     import shutil
-    from .config import VECTOR_DB_PATH
-    
+
     # 安全检查：确保文件名只包含安全字符
     if not filename.endswith('.pdf') or '/' in filename or '\\' in filename:
         return {"status": "错误", "message": "无效的文件名"}
@@ -103,23 +109,21 @@ async def delete_document(filename: str):
     os.remove(file_path)
     
     # 如果向量数据库存在，也需要重建
-    if os.path.exists(VECTOR_DB_PATH):
-        shutil.rmtree(VECTOR_DB_PATH)
+    if os.path.exists(settings.vector_db_path):
+        shutil.rmtree(settings.vector_db_path)
     
     return {"status": "成功", "message": f"文档 {filename} 已删除"}
 
 @app.post("/clear_knowledge_base")
-async def clear_knowledge_base():
+async def clear_knowledge_base(settings: Settings = Depends(get_settings)):
     """清理知识库（删除向量数据库和PDF文档）"""
     import shutil
     import os
-    from .config import VECTOR_DB_PATH
-    
     deleted_files = []
     
     # 删除向量数据库
-    if os.path.exists(VECTOR_DB_PATH):
-        shutil.rmtree(VECTOR_DB_PATH)
+    if os.path.exists(settings.vector_db_path):
+        shutil.rmtree(settings.vector_db_path)
         deleted_files.append("向量数据库")
     
     # 删除PDF文档

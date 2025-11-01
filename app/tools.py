@@ -1,6 +1,7 @@
 from langchain.tools import tool
 import requests, math
 from .retriever import get_retriever
+from .core.config import get_settings
 
 @tool
 def calculator(expression: str) -> str:
@@ -20,7 +21,8 @@ def weather(city: str) -> str:
 
 @tool
 def doc_search(query: str) -> str:
-    retriever = get_retriever()
+    settings = get_settings()
+    retriever = get_retriever(settings=settings)
     docs = retriever.invoke(query)
     if not docs:
         return "知识库中暂无相关内容。"

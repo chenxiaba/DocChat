@@ -2,10 +2,24 @@ from langgraph.graph import StateGraph
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from .retriever import get_retriever, get_hybrid_rerank_retriever
-from .config import VECTOR_DB_PATH, DEEPSEEK_API_KEY, API_BASE
+from .core.config import Settings, get_settings
 from typing import TypedDict, List
-import streamlit as st
-API_KEY = st.secrets["general"]["DEEPSEEK_API_KEY"]
+
+try:
+    import streamlit as st
+except ModuleNotFoundError:  # pragma: no cover - optional in backend-only deployments
+    st = None  # type: ignore
+
+
+def _resolve_api_key(settings: Settings) -> str | None:
+    if settings.deepseek_api_key:
+        return settings.deepseek_api_key
+    if st is None:
+        return None
+    try:
+        return st.secrets["general"]["DEEPSEEK_API_KEY"]
+    except Exception:  # pragma: no cover - optional runtime dependency
+        return None
 
 class AgentState(TypedDict):
     query: str
@@ -15,17 +29,23 @@ class AgentState(TypedDict):
     response: str
 
 # 文档摘要生成器
-def generate_document_summary(docs_text):
+def generate_document_summary(
+    docs_text, settings: Settings | None = None
+):
     """使用AI模型生成文档内容的智能摘要"""
+    settings = settings or get_settings()
     if not docs_text:
         return ""
-    
+
     # 初始化DeepSeek AI模型
     try:
+        api_key = _resolve_api_key(settings)
+        if not api_key:
+            raise ValueError("DEEPSEEK_API_KEY is not configured")
         llm = ChatOpenAI(
             model="deepseek-chat",
-            api_key=DEEPSEEK_API_KEY,
-            base_url=API_BASE,
+            api_key=api_key,
+            base_url=settings.openai_api_base,
             temperature=0.3  # 较低温度以获得更稳定的摘要
         )
         
@@ -58,21 +78,27 @@ def generate_document_summary(docs_text):
         return docs_text[:500] + "..." if len(docs_text) > 500 else docs_text
 
 # AI模型智能响应生成器
-def generate_ai_response(query, docs_text):
+def generate_ai_response(
+    query, docs_text, settings: Settings | None = None
+):
     """使用AI模型基于文档内容生成智能响应"""
+    settings = settings or get_settings()
     if not docs_text:
         return "抱歉，知识库中暂无相关内容。请尝试上传相关文档或询问其他问题。"
-    
+
     print(f"=== AI响应生成开始 ===")
     print(f"查询内容: {query}")
     print(f"文档长度: {len(docs_text)} 字符")
-    
+
     # 初始化DeepSeek AI模型
     try:
+        api_key = _resolve_api_key(settings)
+        if not api_key:
+            raise ValueError("DEEPSEEK_API_KEY is not configured")
         llm = ChatOpenAI(
             model="deepseek-chat",
-            api_key=API_KEY,
-            base_url=API_BASE,
+            api_key=api_key,
+            base_url=settings.openai_api_base,
             temperature=0.8  # 提高温度以获得更多样化的响应
         )
         
@@ -198,8 +224,11 @@ def generate_ai_response(query, docs_text):
         return generate_local_response(query, docs_text)
 
 # 流式AI模型智能响应生成器
-async def generate_ai_response_stream(query, docs_text):
+async def generate_ai_response_stream(
+    query, docs_text, settings: Settings | None = None
+):
     """使用AI模型基于文档内容生成流式智能响应"""
+    settings = settings or get_settings()
     if not docs_text:
         yield "抱歉，知识库中暂无相关内容。请尝试上传相关文档或询问其他问题。"
         return
@@ -210,10 +239,13 @@ async def generate_ai_response_stream(query, docs_text):
     
     # 初始化DeepSeek AI模型（支持流式）
     try:
+        api_key = _resolve_api_key(settings)
+        if not api_key:
+            raise ValueError("DEEPSEEK_API_KEY is not configured")
         llm = ChatOpenAI(
             model="deepseek-chat",
-            api_key=DEEPSEEK_API_KEY,
-            base_url=API_BASE,
+            api_key=api_key,
+            base_url=settings.openai_api_base,
             temperature=0.8,  # 提高温度以获得更多样化的响应
             streaming=True  # 启用流式输出
         )
@@ -406,7 +438,8 @@ def generate_local_response(query, docs_text):
         return f"根据文档内容，相关信息如下：\n\n{docs_text}\n\n如需更详细信息，请参考上传的文档。"
 
 def retrieve_node(state):
-    retriever = get_hybrid_rerank_retriever()
+    settings = get_settings()
+    retriever = get_hybrid_rerank_retriever(settings=settings)
     query = state["query"]
     docs = retriever.invoke(query)
     return {"docs": docs}
@@ -421,10 +454,12 @@ def reflect_node(state):
 def response_node(state):
     # 使用所有检索到的文档内容，不做限制
     docs_text = "\n".join([d.page_content for d in state["docs"]])
-    response = generate_ai_response(state["query"], docs_text)
+    settings = get_settings()
+    response = generate_ai_response(state["query"], docs_text, settings=settings)
     return {"response": response}
 
-def create_workflow():
+def create_workflow(settings: Settings | None = None):
+    settings = settings or get_settings()
     g = StateGraph(AgentState)
     g.add_node("retrieve", retrieve_node)
     g.add_node("summarize", summarize_node)
@@ -437,18 +472,21 @@ def create_workflow():
     g.set_finish_point("response")
     return g.compile()
 
-def create_simple_workflow():
+def create_simple_workflow(settings: Settings | None = None):
     """简化版工作流，使用AI模型生成智能响应"""
+    settings = settings or get_settings()
     g = StateGraph(AgentState)
-    
+
     def simple_response_node(state):
         """直接生成响应，使用AI模型"""
-        retriever = get_hybrid_rerank_retriever()
+        retriever = get_hybrid_rerank_retriever(settings=settings)
         docs = retriever.invoke(state["query"])
         # 使用所有检索到的文档内容，不做限制
         docs_text = "\n".join([d.page_content for d in docs]) if docs else ""
-        
-        response = generate_ai_response(state["query"], docs_text)
+
+        response = generate_ai_response(
+            state["query"], docs_text, settings=settings
+        )
         return {"response": response}
     
     g.add_node("simple_response", simple_response_node)
