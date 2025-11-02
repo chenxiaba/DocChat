@@ -1,5 +1,5 @@
 # 多阶段构建：构建阶段
-FROM python:3.11-slim as builder
+FROM registry.cn-hangzhou.aliyuncs.com/acs/python:3.11-slim as builder
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -20,7 +20,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 多阶段构建：生产阶段
-FROM python:3.11-slim
+FROM registry.cn-hangzhou.aliyuncs.com/acs/python:3.11-slim
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -60,42 +60,8 @@ EXPOSE 8000 8501
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
+# 设置生产环境变量
+ENV DOCCHAT_ENV=production
+
 # 启动应用（使用生产环境配置）
-CMD ["/bin/bash", "-c", "
-    # 设置生产环境变量
-    export DOCCHAT_ENV=production
-    
-    # 启动后端服务
-    uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 &
-    
-    # 等待后端服务启动
-    sleep 10
-    
-    # 启动前端服务
-    streamlit run frontend/streamlit_app.py --server.port 8501 --server.address 0.0.0.0 &
-    
-    # 等待所有进程
-    waitWORKDIR /app
-    
-    # 安装构建依赖
-        build-essential \
-    # 复制依赖文件
-    COPY requirements.txt .
-    
-    # 安装依赖到虚拟环境
-    # 生产阶段
-    # 安装运行时依赖
-    RUN useradd --create-home --shell /bin/bash docchat
-    # 设置工作目录
-    # 复制项目文件
-    ENV PYTHONPATH=/app
-    ENV PYTHONUNBUFFERED=1
-    # 创建数据目录并设置权限
-    RUN mkdir -p data logs && chown -R docchat:docchat /app
-    # 暴露端口
-    HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-        CMD curl -f http://localhost:8000/docs || exit 1
-    # 启动脚本
-    CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 & streamlit run frontend/streamlit_app.py --server.port 8501 --server.address 0.0.0.0"]
-    
-"]
+CMD ["/bin/bash", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 & sleep 10 && streamlit run frontend/streamlit_app.py --server.port 8501 --server.address 0.0.0.0"]
