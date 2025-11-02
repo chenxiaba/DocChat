@@ -27,7 +27,7 @@ WECHAT_CALLBACK_API = f"{AUTH_BASE_URL}/wechat/callback"
 QR_CODE_TEMPLATE = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&data={data}"
 PROVIDER_LABELS = {"google": "Google", "wechat": "微信"}
 
-st.set_page_config(page_title="DocChat AI - 智能文档问答", page_icon="📚", layout="wide")
+st.set_page_config(page_title="DocChat AI - 与文档聊天对话，获得更深的洞见", page_icon="📚", layout="wide")
 
 # 添加基本的CSS样式确保文本换行
 st.markdown(
@@ -43,7 +43,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("📚 DocChat AI - 智能文档问答")
+st.title("📚 DocChat AI - 与文档聊天对话，获得更深的洞见")
 
 HISTORY_FILE = "data/chat_history.pkl"
 
