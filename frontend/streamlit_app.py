@@ -102,7 +102,7 @@ def trigger_external_redirect(url: str | None) -> None:
         st.error("登录地址缺失，请稍后重试。")
         return
     st.session_state["oauth_redirect_url"] = url
-    st.experimental_rerun()
+    st.rerun()
 
 
 def start_google_login() -> None:
@@ -144,7 +144,7 @@ def ensure_wechat_login() -> dict | None:
 
 def clear_oauth_query_params(params: dict[str, list[str]]) -> None:
     retained = {k: v for k, v in params.items() if k not in {"code", "state"}}
-    st.experimental_set_query_params(**retained)
+    st.query_params = retained
 
 
 def _guess_provider_from_params(params: dict[str, list[str]]) -> str | None:
@@ -154,7 +154,7 @@ def _guess_provider_from_params(params: dict[str, list[str]]) -> str | None:
 
 
 def handle_oauth_callback() -> None:
-    params = st.experimental_get_query_params()
+    params = st.query_params
     code = params.get("code", [None])[0]
     state = params.get("state", [None])[0]
 
@@ -168,7 +168,7 @@ def handle_oauth_callback() -> None:
     if provider not in {"google", "wechat"}:
         st.session_state["auth_feedback"] = ("warning", "登录状态已失效，请重新发起登录。")
         clear_oauth_query_params(params)
-        st.experimental_rerun()
+        st.rerun()
 
     callback_api = GOOGLE_CALLBACK_API if provider == "google" else WECHAT_CALLBACK_API
     try:
@@ -200,7 +200,7 @@ def handle_oauth_callback() -> None:
         )
 
     clear_oauth_query_params(params)
-    st.experimental_rerun()
+    st.rerun()
 
 
 def logout_user() -> None:
@@ -234,7 +234,7 @@ def render_login_section() -> bool:
 
             if st.button("退出登录", type="primary"):
                 logout_user()
-                st.experimental_rerun()
+                st.rerun()
 
         with col_avatar:
             avatar_url = profile.get("picture") or profile.get("headimgurl")
@@ -246,12 +246,12 @@ def render_login_section() -> bool:
 
     google_tab, wechat_tab = st.tabs(["Google 登录", "微信扫码登录"])
     with google_tab:
-        st.write("使用企业 Google 账号进行登录，完成后将自动返回本页面。")
+        st.write("使用 Google 账号进行登录，完成后将自动返回本页面。")
         if st.button("使用 Google 登录", type="primary"):
             start_google_login()
 
     with wechat_tab:
-        st.write("使用企业微信扫码登录，二维码有效期有限，过期后请点击刷新。")
+        st.write("使用个人微信扫码登录，二维码有效期有限，过期后请点击刷新。")
         login_info = ensure_wechat_login()
         if login_info and login_info.get("login_url"):
             encoded = quote_plus(login_info["login_url"])
@@ -267,7 +267,7 @@ def render_login_section() -> bool:
 
         if st.button("刷新微信二维码"):
             st.session_state["wechat_login"] = None
-            st.experimental_rerun()
+            st.rerun()
 
     st.info("完成登录后即可继续使用 DocChat 的知识库与问答功能。")
     st.divider()
