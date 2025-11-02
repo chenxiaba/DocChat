@@ -1,5 +1,5 @@
 # 多阶段构建：构建阶段
-FROM registry.cn-hangzhou.aliyuncs.com/acs/python:3.11-slim as builder
+FROM python:3.11-slim as builder
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -20,7 +20,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 多阶段构建：生产阶段
-FROM registry.cn-hangzhou.aliyuncs.com/acs/python:3.11-slim
+FROM python:3.11-slim
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
